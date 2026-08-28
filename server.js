@@ -4,9 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeSettings, propose as proposeWithProvider, providerStatus } from "./ai-provider.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataFile = join(root, "data", "projects.json");
+const aiSettingsFile = join(root, "data", "ai-settings.json");
 const publicDir = join(root, "public");
 const execFileAsync = promisify(execFile);
 const assetsDir = join(root, "data", "assets");
@@ -19,6 +21,20 @@ async function readProjects() {
 async function saveProjects(projects) {
   await mkdir(dirname(dataFile), { recursive: true });
   await writeFile(dataFile, JSON.stringify(projects, null, 2));
+}
+
+async function readAiSettings() {
+  try { return normalizeSettings(JSON.parse(await readFile(aiSettingsFile, "utf8"))); }
+  catch { return {}; }
+}
+
+async function saveAiSettings(settings) {
+  await mkdir(dirname(aiSettingsFile), { recursive: true });
+  await writeFile(aiSettingsFile, JSON.stringify(settings, null, 2));
+}
+
+function projectRevision(project) {
+  return Number.isInteger(project.revision) ? project.revision : (project.revisions || []).length;
 }
 
 function send(res, status, body, type = "application/json", headers = {}) {
@@ -47,7 +63,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "Untitled document", content: input.content || "# Untitled document\n\nStart writing here.", updatedAt: now, revisions: [] };
+      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "Untitled document", content: input.content || "# Untitled document\n\nStart writing here.", updatedAt: now, revision: 0, revisions: [] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);
@@ -73,21 +89,34 @@ const server = http.createServer(async (req, res) => {
       }
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: projectId, title: input.title?.trim() || "Imported document", content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, revisions: [] };
+      const project = { id: projectId, title: input.title?.trim() || "Imported document", content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, revision: 0, revisions: [] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);
     }
+    if (url.pathname === "/api/ai/status" && req.method === "GET") {
+      return send(res, 200, providerStatus(await readAiSettings()));
+    }
+    if (url.pathname === "/api/ai/settings" && req.method === "GET") {
+      const settings = await readAiSettings();
+      return send(res, 200, { ...settings, ...providerStatus(settings) });
+    }
+    if (url.pathname === "/api/ai/settings" && req.method === "PUT") {
+      try {
+        const settings = normalizeSettings(await body(req));
+        await saveAiSettings(settings);
+        return send(res, 200, { ...settings, ...providerStatus(settings) });
+      } catch (error) {
+        return send(res, 400, { error: error.message });
+      }
+    }
     if (url.pathname === "/api/ai/propose" && req.method === "POST") {
       const input = await body(req);
-      const content = String(input.content || "");
-      const task = String(input.task || "Improve this document");
-      const preview = task.toLowerCase().includes("summar")
-        ? "## Summary\n\n- This document is ready for review.\n- The main ideas have been condensed into a short overview.\n- Add source details before publishing."
-        : task.toLowerCase().includes("continu")
-          ? `${content.trim()}\n\n## Next steps\n\nDefine the next action, owner, and expected outcome.`
-          : content.replace(/^# (.+)$/m, "# $1\n\n> Draft improved for clarity and structure.\n");
-      return send(res, 200, { provider: "local-provider", operation: { id: crypto.randomUUID(), label: task, baseRevision: input.revision, changes: [{ type: "replace_document", content: preview }] }, preview });
+      try {
+        return send(res, 200, await proposeWithProvider(input, await readAiSettings()));
+      } catch (error) {
+        return send(res, 502, { error: error.message });
+      }
     }
     const assetMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/assets\/([^/]+)$/);
     if (assetMatch && req.method === "GET") {
@@ -104,6 +133,10 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && !action) return send(res, 200, project);
       if (req.method === "POST" && action === "save") {
         const input = await body(req);
+        const currentRevision = projectRevision(project);
+        if (input.baseRevision !== undefined && Number(input.baseRevision) !== currentRevision) {
+          return send(res, 409, { error: "Document changed since this operation was prepared", project });
+        }
         const nextTitle = input.title?.trim() || project.title;
         const nextContent = input.content ?? project.content;
         if (nextTitle === project.title && nextContent === project.content) return send(res, 200, project);
@@ -111,6 +144,7 @@ const server = http.createServer(async (req, res) => {
         project.revisions = project.revisions.slice(0, 20);
         project.title = nextTitle;
         project.content = nextContent;
+        project.revision = currentRevision + 1;
         project.updatedAt = new Date().toISOString();
         await saveProjects(projects);
         return send(res, 200, project);
@@ -121,6 +155,7 @@ const server = http.createServer(async (req, res) => {
         if (!revision) return send(res, 400, { error: "Revision not found" });
         project.revisions.unshift({ content: project.content, savedAt: project.updatedAt });
         project.content = revision.content;
+        project.revision = projectRevision(project) + 1;
         project.updatedAt = new Date().toISOString();
         await saveProjects(projects);
         return send(res, 200, project);
