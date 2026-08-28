@@ -116,6 +116,7 @@ POST /api/projects/:id/save
 POST /api/projects/:id/restore
 POST /api/import
 POST /api/ai/propose
+POST /api/ai/propose/stream
 GET  /api/ai/status
 GET  /api/ai/settings
 PUT  /api/ai/settings
@@ -129,11 +130,11 @@ This project aims for useful, inspectable conversion rather than claiming full W
 
 Those cases are intentionally kept visible as the next engineering work instead of being hidden behind a misleading "full fidelity" label.
 
-AI proposals also carry the document revision they were generated from. Applying an older proposal after the document changed returns `409` and preserves the newer document.
+AI proposals also carry the document revision they were generated from. Applying an older proposal after the document changed returns `409` and preserves the newer document. The streaming endpoint uses Server-Sent Events and emits `meta`, `text`, `done`, or `error` events; the browser can cancel an in-flight proposal.
 
 ## Roadmap
 
-1. Add streaming responses and request cancellation for remote providers.
+1. Add selection-aware editing and structured rich-text operations.
 2. Expand golden DOCX fixtures and XML/rendered regression checks.
 3. Improve complex lists, styles, page layout, and embedded media.
 4. Add document search and richer editing commands.
