@@ -105,21 +105,127 @@ async function remotePreview(content, task, config) {
   }
 }
 
+async function* remoteTextStream(content, task, config, signal) {
+  if (!config.apiKey) throw new Error("OpenAI-compatible provider is selected, but GENOFFICE_AI_API_KEY is not configured");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  const abortRemote = () => controller.abort();
+  signal?.addEventListener("abort", abortRemote, { once: true });
+  try {
+    const response = await fetch(endpointFor(config.baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.2,
+        stream: true,
+        messages: [
+          { role: "system", content: "You are a careful document editor. Return only the proposed Markdown document, without explanations or code fences. Preserve useful content unless the request requires a change." },
+          { role: "user", content: `Task: ${task}\n\nCurrent Markdown document:\n\n${content}` },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const raw = await response.text();
+      let payload = {};
+      try { payload = raw ? JSON.parse(raw) : {}; } catch {}
+      const detail = payload.error?.message || payload.error || `Provider returned HTTP ${response.status}`;
+      throw new Error(`AI provider error: ${String(detail).slice(0, 300)}`);
+    }
+    if (!response.body) throw new Error("AI provider did not return a streaming response");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finished = false;
+    while (!finished) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        for (const line of block.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") { finished = true; break; }
+          let payload = {};
+          try { payload = JSON.parse(data); } catch { continue; }
+          const delta = payload.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        }
+        if (finished) break;
+      }
+      if (chunk.done) {
+        const finalBlock = buffer;
+        buffer = "";
+        for (const line of finalBlock.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === "[DONE]") continue;
+          let payload = {};
+          try { payload = JSON.parse(data); } catch { continue; }
+          const delta = payload.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      if (signal?.aborted) throw new Error("AI proposal canceled");
+      throw new Error("AI provider timed out after 45 seconds");
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abortRemote);
+    clearTimeout(timeout);
+  }
+}
+
+function operationFor(input, provider, model, preview) {
+  return {
+    provider,
+    model,
+    operation: {
+      id: crypto.randomUUID(),
+      label: String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document",
+      baseRevision: Number.isInteger(input.revision) ? input.revision : Number(input.revision) || 0,
+      changes: [{ type: "replace_document", content: preview }],
+    },
+    preview,
+  };
+}
+
 export async function propose(input, settings = {}) {
   const content = String(input.content || "").slice(0, MAX_CONTENT_LENGTH);
   const task = String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document";
   const config = getProviderConfig(settings);
   const preview = config.provider === "local" ? localPreview(content, task) : await remotePreview(content, task, config);
   if (!preview) throw new Error("AI proposal is empty");
-  return {
-    provider: config.provider,
-    model: config.model,
-    operation: {
-      id: crypto.randomUUID(),
-      label: task,
-      baseRevision: Number.isInteger(input.revision) ? input.revision : Number(input.revision) || 0,
-      changes: [{ type: "replace_document", content: preview }],
-    },
-    preview,
-  };
+  return operationFor({ ...input, task }, config.provider, config.model, preview);
+}
+
+export async function* streamPropose(input, settings = {}, signal) {
+  const content = String(input.content || "").slice(0, MAX_CONTENT_LENGTH);
+  const task = String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document";
+  const config = getProviderConfig(settings);
+  yield { type: "meta", provider: config.provider, model: config.model };
+  let preview = "";
+  if (config.provider === "local") {
+    const local = localPreview(content, task);
+    for (let index = 0; index < local.length; index += 72) {
+      if (signal?.aborted) throw new Error("AI proposal canceled");
+      const delta = local.slice(index, index + 72);
+      preview += delta;
+      yield { type: "text", delta };
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+  } else {
+    for await (const delta of remoteTextStream(content, task, config, signal)) {
+      preview += delta;
+      yield { type: "text", delta };
+    }
+  }
+  if (!preview) throw new Error("AI proposal is empty");
+  yield { type: "done", ...operationFor({ ...input, task }, config.provider, config.model, preview) };
 }
