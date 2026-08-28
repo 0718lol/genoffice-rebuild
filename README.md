@@ -41,7 +41,7 @@ Restore a revision -> Export DOCX
 | DOCX export | Word styles, numbering definitions, table borders, header rows, image sizing, headers and footers |
 | Runtime | Platform-hosted web product, no API key required for the local provider |
 
-The built-in `local-provider` is deterministic mock AI. It keeps the complete review workflow usable without credentials and is intentionally isolated behind the `/api/ai/propose` boundary for a future real provider.
+The built-in `local-provider` is deterministic mock AI. It keeps the complete review workflow usable without credentials. The same review flow can use any OpenAI-compatible chat completions endpoint when configured on the server.
 
 ## Quick Start
 
@@ -66,6 +66,24 @@ Run the regression suite:
 cd products/genoffice-rebuild
 npm test
 ```
+
+## Configure A Real Provider
+
+The default provider is local and requires no credentials. To enable a remote OpenAI-compatible provider, set the API key on the server before starting the product:
+
+```bash
+GENOFFICE_AI_PROVIDER=openai-compatible \
+GENOFFICE_AI_BASE_URL=https://api.openai.com/v1 \
+GENOFFICE_AI_MODEL=gpt-4o-mini \
+GENOFFICE_AI_API_KEY="$OPENAI_API_KEY" \
+PORT=3000 npm start
+```
+
+The settings dialog can change the provider, base URL, and model. These values are stored in local runtime state; the API key is never accepted from the browser and is never written to `data/ai-settings.json`.
+
+The remote provider must expose `POST /chat/completions` and return a standard response containing `choices[0].message.content`. The product sends the current Markdown document and task, then wraps the returned document in the same reviewable operation used by the local provider.
+
+When a remote provider is selected without `GENOFFICE_AI_API_KEY`, the editor stays available and reports the missing configuration instead of silently falling back to a remote call.
 
 ## Product Structure
 
@@ -98,6 +116,9 @@ POST /api/projects/:id/save
 POST /api/projects/:id/restore
 POST /api/import
 POST /api/ai/propose
+GET  /api/ai/status
+GET  /api/ai/settings
+PUT  /api/ai/settings
 POST /api/projects/:id/export/docx
 GET  /api/projects/:id/assets/:file
 ```
@@ -108,9 +129,11 @@ This project aims for useful, inspectable conversion rather than claiming full W
 
 Those cases are intentionally kept visible as the next engineering work instead of being hidden behind a misleading "full fidelity" label.
 
+AI proposals also carry the document revision they were generated from. Applying an older proposal after the document changed returns `409` and preserves the newer document.
+
 ## Roadmap
 
-1. Add a configurable OpenAI-compatible provider while retaining the local fallback.
+1. Add streaming responses and request cancellation for remote providers.
 2. Expand golden DOCX fixtures and XML/rendered regression checks.
 3. Improve complex lists, styles, page layout, and embedded media.
 4. Add document search and richer editing commands.
