@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GenOffice Rebuild</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar"><div class="brand"><span class="brand-mark">G</span><span>GenOffice</span><small>REBUILD</small></div><div id="saveState" role="status" aria-live="polite">Saved locally</div><button id="exportDocx" class="secondary">Export DOCX</button><button id="newProject" class="primary">+ New document</button></header>
+  <main class="layout">
+    <aside class="sidebar"><div class="eyebrow">WORKSPACE</div><div class="sidebar-actions"><button id="importProject" class="import-button">Import file</button><input id="fileInput" type="file" accept=".md,.markdown,.txt,.docx,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></div><div id="importState" class="import-state" aria-live="polite"></div><div id="projectList" class="project-list"></div><div class="sidebar-foot">Local-first workspace<br><span>Revision history enabled</span></div></aside>
+    <section class="editor-shell"><div class="doc-head"><input id="title" aria-label="Document title"><div class="doc-meta" id="updatedAt"></div></div><textarea id="editor" spellcheck="false" aria-label="Markdown editor"></textarea><div class="editor-foot"><span>Markdown</span><span id="wordCount">0 words</span></div></section>
+    <aside class="ai-panel"><div class="panel-head"><div><div class="eyebrow">ASSISTANT</div><h2>Document copilot</h2></div><span class="status-dot">● Local</span></div><p class="panel-copy">Choose an action. Proposed edits remain reviewable until you apply them.</p><div class="task-grid"><button data-task="Improve the clarity and structure of this document">Improve writing</button><button data-task="Summarize this document in three concise bullet points">Summarize</button><button data-task="Continue this document with a practical next section">Continue draft</button></div><div id="aiResult" class="ai-result hidden"></div><div class="history"><div class="section-label">REVISION HISTORY</div><div id="historyList"></div></div></aside>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
