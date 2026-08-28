@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeSettings, propose as proposeWithProvider, providerStatus } from "./ai-provider.js";
+import { normalizeSettings, propose as proposeWithProvider, providerStatus, streamPropose } from "./ai-provider.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataFile = join(root, "data", "projects.json");
@@ -51,6 +51,10 @@ async function body(req) {
 
 function downloadName(title) {
   return `${String(title || "document").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "document"}.docx`;
+}
+
+function streamEvent(res, event) {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -109,6 +113,34 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         return send(res, 400, { error: error.message });
       }
+    }
+    if (url.pathname === "/api/ai/propose/stream" && req.method === "POST") {
+      const input = await body(req);
+      const controller = new AbortController();
+      const cancelOnDisconnect = () => {
+        if (!req.complete) controller.abort();
+      };
+      const cancelOnResponseClose = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      req.on("aborted", cancelOnDisconnect);
+      req.on("close", cancelOnDisconnect);
+      res.on("close", cancelOnResponseClose);
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
+      try {
+        for await (const event of streamPropose(input, await readAiSettings(), controller.signal)) {
+          if (res.writableEnded) break;
+          streamEvent(res, event);
+        }
+      } catch (error) {
+        if (!res.writableEnded && !controller.signal.aborted) streamEvent(res, { type: "error", error: error.message });
+      } finally {
+        req.off("aborted", cancelOnDisconnect);
+        req.off("close", cancelOnDisconnect);
+        res.off("close", cancelOnResponseClose);
+        if (!res.writableEnded) res.end();
+      }
+      return;
     }
     if (url.pathname === "/api/ai/propose" && req.method === "POST") {
       const input = await body(req);
