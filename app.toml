@@ -1,0 +1,3 @@
+name = "GenOffice Rebuild"
+start = "node server.js"
+health = "/"
