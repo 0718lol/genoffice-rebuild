@@ -1,0 +1,10 @@
+# Local runtime state
+data/projects.json
+data/assets/
+
+# Generated files
+.asteam-product.log
+__pycache__/
+.*.docx
+.*.md
+
