@@ -13,8 +13,13 @@ const publicDir = join(root, "public");
 const execFileAsync = promisify(execFile);
 const assetsDir = join(root, "data", "assets");
 
+function isLegacyTestProject(project) {
+  if (project?.title === "Conflict test" && ["# One", "# Two"].includes(project.content)) return true;
+  return project?.title === "HTTP export" && project.content === "# Hello\n\n- One\n- Two\n\n![Diagram](diagram.png)";
+}
+
 async function readProjects() {
-  try { return JSON.parse(await readFile(dataFile, "utf8")); }
+  try { return JSON.parse(await readFile(dataFile, "utf8")).filter((project) => !isLegacyTestProject(project)); }
   catch { return []; }
 }
 
@@ -67,7 +72,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "Untitled document", content: input.content || "# Untitled document\n\nStart writing here.", updatedAt: now, revision: 0, revisions: [] };
+      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "未命名文档", content: input.content ?? "", updatedAt: now, revision: 0, revisions: [] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);
@@ -93,7 +98,7 @@ const server = http.createServer(async (req, res) => {
       }
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: projectId, title: input.title?.trim() || "Imported document", content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, revision: 0, revisions: [] };
+      const project = { id: projectId, title: input.title?.trim() || "导入的文档", content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, revision: 0, revisions: [] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);

@@ -15,7 +15,7 @@ const result = await propose({
 
 assert.equal(result.provider, "local");
 assert.equal(result.operation.baseRevision, 4);
-assert.match(result.preview, /Next steps/);
+assert.match(result.preview, /下一步/);
 assert.equal(result.operation.changes[0].type, "replace_document");
 
 const selectedResult = await propose({
@@ -28,6 +28,13 @@ const selectedResult = await propose({
 assert.equal(selectedResult.operation.changes[0].type, "replace_range");
 assert.equal(selectedResult.operation.changes[0].start, 15);
 assert.equal(selectedResult.operation.changes[0].end, 37);
+
+const chineseSummary = await propose({
+  task: "请将内容总结为三个简洁的要点",
+  content: "这是一份产品发布计划。",
+  revision: 6,
+}, { provider: "local", model: "test-model", baseUrl: "https://example.com/v1" });
+assert.match(chineseSummary.preview, /内容摘要/);
 
 const events = [];
 for await (const event of streamPropose({

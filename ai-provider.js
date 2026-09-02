@@ -9,17 +9,17 @@ function trimBaseUrl(value) {
 function localPreview(content, task, selection = "") {
   const normalizedTask = task.toLowerCase();
   if (selection) {
-    if (normalizedTask.includes("summar")) return "Summary: " + selection.trim().replace(/\s+/g, " ").slice(0, 180);
-    if (normalizedTask.includes("continu")) return `${selection.trim()}\n\nNext step: define the owner, action, and expected outcome.`;
-    return selection.replace(/\s+/g, " ").trim() + "\n\n[Edited for clarity and structure]";
+    if (normalizedTask.includes("summar") || task.includes("总结")) return "要点：" + selection.trim().replace(/\s+/g, " ").slice(0, 180);
+    if (normalizedTask.includes("continu") || task.includes("续写")) return `${selection.trim()}\n\n下一步：明确负责人、具体行动和预期结果。`;
+    return selection.replace(/\s+/g, " ").trim() + "\n\n[已优化表达与结构]";
   }
-  if (normalizedTask.includes("summar")) {
-    return "## Summary\n\n- This document is ready for review.\n- The main ideas have been condensed into a short overview.\n- Add source details before publishing.";
+  if (normalizedTask.includes("summar") || task.includes("总结")) {
+    return "## 内容摘要\n\n- 文档的主要内容已整理为简明概述。\n- 核心信息可据此进一步补充和确认。\n- 发布前建议核对事实与来源。";
   }
-  if (normalizedTask.includes("continu")) {
-    return `${content.trim()}\n\n## Next steps\n\nDefine the next action, owner, and expected outcome.`;
+  if (normalizedTask.includes("continu") || task.includes("续写")) {
+    return `${content.trim()}\n\n## 下一步\n\n明确下一阶段的负责人、具体行动和预期结果。`;
   }
-  return content.replace(/^# (.+)$/m, "# $1\n\n> Draft improved for clarity and structure.\n");
+  return content.replace(/^# (.+)$/m, "# $1\n\n> 已优化表达与结构。\n");
 }
 
 export function normalizeSettings(input = {}) {
