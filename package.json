@@ -9,5 +9,8 @@
     "test:ai": "node test_ai_provider.js",
     "test:docx": "python3 test_docx_import.py",
     "test:docx-export": "python3 test_docx_export.py"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

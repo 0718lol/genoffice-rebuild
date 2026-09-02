@@ -6,8 +6,13 @@ function trimBaseUrl(value) {
   return String(value || DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
 }
 
-function localPreview(content, task) {
+function localPreview(content, task, selection = "") {
   const normalizedTask = task.toLowerCase();
+  if (selection) {
+    if (normalizedTask.includes("summar")) return "Summary: " + selection.trim().replace(/\s+/g, " ").slice(0, 180);
+    if (normalizedTask.includes("continu")) return `${selection.trim()}\n\nNext step: define the owner, action, and expected outcome.`;
+    return selection.replace(/\s+/g, " ").trim() + "\n\n[Edited for clarity and structure]";
+  }
   if (normalizedTask.includes("summar")) {
     return "## Summary\n\n- This document is ready for review.\n- The main ideas have been condensed into a short overview.\n- Add source details before publishing.";
   }
@@ -69,7 +74,7 @@ function endpointFor(baseUrl) {
   return /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
 }
 
-async function remotePreview(content, task, config) {
+async function remotePreview(content, task, config, selection = "") {
   if (!config.apiKey) throw new Error("OpenAI-compatible provider is selected, but GENOFFICE_AI_API_KEY is not configured");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -81,8 +86,8 @@ async function remotePreview(content, task, config) {
         model: config.model,
         temperature: 0.2,
         messages: [
-          { role: "system", content: "You are a careful document editor. Return only the proposed Markdown document, without explanations or code fences. Preserve useful content unless the request requires a change." },
-          { role: "user", content: `Task: ${task}\n\nCurrent Markdown document:\n\n${content}` },
+          { role: "system", content: selection ? "You are a careful document editor. Return only the replacement Markdown for the selected passage, without explanations or code fences. Preserve the selected passage's intent." : "You are a careful document editor. Return only the proposed Markdown document, without explanations or code fences. Preserve useful content unless the request requires a change." },
+          { role: "user", content: selection ? `Task: ${task}\n\nSelected passage to replace:\n\n${selection}` : `Task: ${task}\n\nCurrent Markdown document:\n\n${content}` },
         ],
       }),
       signal: controller.signal,
@@ -105,7 +110,7 @@ async function remotePreview(content, task, config) {
   }
 }
 
-async function* remoteTextStream(content, task, config, signal) {
+async function* remoteTextStream(content, task, config, signal, selection = "") {
   if (!config.apiKey) throw new Error("OpenAI-compatible provider is selected, but GENOFFICE_AI_API_KEY is not configured");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -120,8 +125,8 @@ async function* remoteTextStream(content, task, config, signal) {
         temperature: 0.2,
         stream: true,
         messages: [
-          { role: "system", content: "You are a careful document editor. Return only the proposed Markdown document, without explanations or code fences. Preserve useful content unless the request requires a change." },
-          { role: "user", content: `Task: ${task}\n\nCurrent Markdown document:\n\n${content}` },
+          { role: "system", content: selection ? "You are a careful document editor. Return only the replacement Markdown for the selected passage, without explanations or code fences. Preserve the selected passage's intent." : "You are a careful document editor. Return only the proposed Markdown document, without explanations or code fences. Preserve useful content unless the request requires a change." },
+          { role: "user", content: selection ? `Task: ${task}\n\nSelected passage to replace:\n\n${selection}` : `Task: ${task}\n\nCurrent Markdown document:\n\n${content}` },
         ],
       }),
       signal: controller.signal,
@@ -183,6 +188,7 @@ async function* remoteTextStream(content, task, config, signal) {
 }
 
 function operationFor(input, provider, model, preview) {
+  const hasSelection = Number.isInteger(input.selectionStart) && Number.isInteger(input.selectionEnd) && input.selectionEnd > input.selectionStart;
   return {
     provider,
     model,
@@ -190,7 +196,7 @@ function operationFor(input, provider, model, preview) {
       id: crypto.randomUUID(),
       label: String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document",
       baseRevision: Number.isInteger(input.revision) ? input.revision : Number(input.revision) || 0,
-      changes: [{ type: "replace_document", content: preview }],
+      changes: [hasSelection ? { type: "replace_range", start: input.selectionStart, end: input.selectionEnd, content: preview } : { type: "replace_document", content: preview }],
     },
     preview,
   };
@@ -199,8 +205,9 @@ function operationFor(input, provider, model, preview) {
 export async function propose(input, settings = {}) {
   const content = String(input.content || "").slice(0, MAX_CONTENT_LENGTH);
   const task = String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document";
+  const selection = Number.isInteger(input.selectionStart) && Number.isInteger(input.selectionEnd) && input.selectionEnd > input.selectionStart ? content.slice(input.selectionStart, input.selectionEnd) : "";
   const config = getProviderConfig(settings);
-  const preview = config.provider === "local" ? localPreview(content, task) : await remotePreview(content, task, config);
+  const preview = config.provider === "local" ? localPreview(content, task, selection) : await remotePreview(content, task, config, selection);
   if (!preview) throw new Error("AI proposal is empty");
   return operationFor({ ...input, task }, config.provider, config.model, preview);
 }
@@ -208,11 +215,12 @@ export async function propose(input, settings = {}) {
 export async function* streamPropose(input, settings = {}, signal) {
   const content = String(input.content || "").slice(0, MAX_CONTENT_LENGTH);
   const task = String(input.task || "Improve this document").trim().slice(0, 500) || "Improve this document";
+  const selection = Number.isInteger(input.selectionStart) && Number.isInteger(input.selectionEnd) && input.selectionEnd > input.selectionStart ? content.slice(input.selectionStart, input.selectionEnd) : "";
   const config = getProviderConfig(settings);
   yield { type: "meta", provider: config.provider, model: config.model };
   let preview = "";
   if (config.provider === "local") {
-    const local = localPreview(content, task);
+    const local = localPreview(content, task, selection);
     for (let index = 0; index < local.length; index += 72) {
       if (signal?.aborted) throw new Error("AI proposal canceled");
       const delta = local.slice(index, index + 72);
@@ -221,7 +229,7 @@ export async function* streamPropose(input, settings = {}, signal) {
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
   } else {
-    for await (const delta of remoteTextStream(content, task, config, signal)) {
+    for await (const delta of remoteTextStream(content, task, config, signal, selection)) {
       preview += delta;
       yield { type: "text", delta };
     }
