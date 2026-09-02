@@ -1,12 +1,13 @@
 {
   "name": "genoffice-rebuild",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "npm run test:ai && npm run test:docx && npm run test:docx-export",
+    "test": "npm run test:ai && npm run test:server && npm run test:docx && npm run test:docx-export",
     "test:ai": "node test_ai_provider.js",
+    "test:server": "node test_server.js",
     "test:docx": "python3 test_docx_import.py",
     "test:docx-export": "python3 test_docx_export.py"
   },

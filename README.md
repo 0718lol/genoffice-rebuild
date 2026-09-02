@@ -4,7 +4,7 @@
 
 GenOffice Rebuild is an independent reimplementation inspired by the workflow of modern AI office tools. It starts with a focused problem: make document editing feel safe when AI is involved.
 
-The product keeps the document in the user's workspace, turns AI requests into reviewable proposals, records every accepted change, and exports a clean DOCX without overwriting the imported original.
+The product keeps the document and its AI conversation in the user's workspace, turns requests into reviewable proposals, records every accepted change, and exports a clean DOCX without overwriting the imported original.
 
 ## Why It Exists
 
@@ -32,10 +32,10 @@ Restore a revision -> Export DOCX
 
 | Area | Included |
 | --- | --- |
-| Workspace | Project list, new documents, local JSON persistence |
+| Workspace | Persistent conversation history, linked documents, local JSON persistence |
 | Editing | Markdown editor, word count, automatic save |
 | Safety | Revision history, restore, non-destructive imports |
-| AI workflow | Improve writing, summarize, continue draft, preview/apply/reject |
+| AI workflow | Free-form prompts, quick actions, persistent messages, preview/apply/reject |
 | Import | `.md`, `.markdown`, `.txt`, `.docx` |
 | DOCX import | Headings, rich text, line breaks, ordered/unordered lists, tables, images, header/footer metadata |
 | DOCX export | Word styles, numbering definitions, table borders, header rows, image sizing, headers and footers |
@@ -94,6 +94,7 @@ genoffice-rebuild/
 │   ├── app.js           # Editor and workflow state
 │   └── styles.css       # UI styling
 ├── server.js            # HTTP API, persistence, import/export orchestration
+├── test_server.js       # Isolated conversation persistence contract
 ├── docx_to_markdown.py  # OOXML to Markdown converter
 ├── markdown_to_docx.py  # Markdown to OOXML converter
 ├── data/
@@ -114,6 +115,7 @@ POST /api/projects
 GET  /api/projects/:id
 POST /api/projects/:id/save
 POST /api/projects/:id/restore
+POST /api/projects/:id/messages
 POST /api/import
 POST /api/ai/propose
 POST /api/ai/propose/stream

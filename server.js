@@ -2,16 +2,17 @@ import http from "node:http";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSettings, propose as proposeWithProvider, providerStatus, streamPropose } from "./ai-provider.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
-const dataFile = join(root, "data", "projects.json");
-const aiSettingsFile = join(root, "data", "ai-settings.json");
+const dataDir = process.env.GENOFFICE_DATA_DIR ? resolve(process.env.GENOFFICE_DATA_DIR) : join(root, "data");
+const dataFile = join(dataDir, "projects.json");
+const aiSettingsFile = join(dataDir, "ai-settings.json");
 const publicDir = join(root, "public");
 const execFileAsync = promisify(execFile);
-const assetsDir = join(root, "data", "assets");
+const assetsDir = join(dataDir, "assets");
 
 function isLegacyPlaceholderProject(project) {
   if (project?.title === "Conflict test" && ["# One", "# Two"].includes(project.content)) return true;
@@ -20,7 +21,7 @@ function isLegacyPlaceholderProject(project) {
 }
 
 async function readProjects() {
-  try { return JSON.parse(await readFile(dataFile, "utf8")).filter((project) => !isLegacyPlaceholderProject(project)); }
+  try { return JSON.parse(await readFile(dataFile, "utf8")).filter((project) => !isLegacyPlaceholderProject(project)).map((project) => ({ ...project, messages: Array.isArray(project.messages) ? project.messages : [] })); }
   catch { return []; }
 }
 
@@ -73,7 +74,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "未命名文档", content: input.content ?? "", updatedAt: now, revision: 0, revisions: [] };
+      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "未命名文档", content: input.content ?? "", updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);
@@ -99,7 +100,8 @@ const server = http.createServer(async (req, res) => {
       }
       const projects = await readProjects();
       const now = new Date().toISOString();
-      const project = { id: projectId, title: input.title?.trim() || "导入的文档", content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, revision: 0, revisions: [] };
+      const title = input.title?.trim() || "导入的文档";
+      const project = { id: projectId, title, content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [{ id: crypto.randomUUID(), role: "assistant", content: `已导入《${title}》，可以继续告诉我需要如何处理。`, createdAt: now }] };
       projects.unshift(project);
       await saveProjects(projects);
       return send(res, 201, project);
@@ -169,6 +171,19 @@ const server = http.createServer(async (req, res) => {
       const project = projects.find((item) => item.id === id);
       if (!project) return send(res, 404, { error: "Project not found" });
       if (req.method === "GET" && !action) return send(res, 200, project);
+      if (req.method === "POST" && action === "messages") {
+        const input = await body(req);
+        const role = input.role === "assistant" ? "assistant" : "user";
+        const content = String(input.content || "").trim().slice(0, 8_000);
+        if (!content) return send(res, 400, { error: "Message content is required" });
+        const message = { id: crypto.randomUUID(), role, content, createdAt: new Date().toISOString() };
+        project.messages = Array.isArray(project.messages) ? project.messages : [];
+        project.messages.push(message);
+        project.messages = project.messages.slice(-100);
+        project.conversationUpdatedAt = message.createdAt;
+        await saveProjects(projects);
+        return send(res, 201, { message, conversationUpdatedAt: project.conversationUpdatedAt });
+      }
       if (req.method === "POST" && action === "save") {
         const input = await body(req);
         const currentRevision = projectRevision(project);
