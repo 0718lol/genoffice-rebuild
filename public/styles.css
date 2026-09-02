@@ -55,6 +55,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .project-copy strong, .project-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-copy strong { color: inherit; font-size: 12px; font-weight: 650; }
 .project-copy small { color: #9ba5b1; font-size: 9px; font-weight: 500; margin-top: 4px; }
+.project-empty { padding: 12px 9px; color: #a0a9b4; font-size: 11px; }
 .sidebar-foot { margin-top: auto; color: #65707e; font-size: 11px; line-height: 1.8; }
 .sidebar-foot span:not(.foot-mark) { color: #a6aeb9; }
 .foot-mark { color: #63ae89; font-size: 9px; margin-right: 5px; }
@@ -63,6 +64,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workspace-intro { max-width: 800px; margin: 0 auto 15px; display: flex; align-items: baseline; gap: 12px; color: #697586; }
 .workspace-intro strong { color: #293548; font-size: 14px; font-weight: 700; }
 .workspace-intro span { font-size: 11px; }
+.empty-state { min-height: calc(100vh - 122px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center; }
+.empty-mark { width: 48px; height: 56px; display: grid; place-items: center; border: 1px solid #dbe2eb; border-radius: 6px; background: #fff; color: #3760c8; box-shadow: 0 8px 24px rgba(39, 51, 67, .06); font-size: 15px; font-weight: 750; }
+.empty-state h1 { margin: 20px 0 8px; color: #202b3c; font-size: 24px; letter-spacing: 0; }
+.empty-state p { margin: 0; color: #768292; font-size: 13px; line-height: 1.7; }
+.empty-actions { display: flex; gap: 8px; margin-top: 22px; }
+.empty-actions span { margin-right: 5px; }
+.empty-state > small { margin-top: 15px; color: #a0a9b4; font-size: 10px; }
 .editor-canvas { min-height: calc(100vh - 151px); max-width: 800px; margin: 0 auto; padding: 38px clamp(26px, 4.5vw, 62px) 24px; background: #fff; border: 1px solid #e8ebef; border-radius: 8px; box-shadow: 0 7px 24px rgba(39, 51, 67, .045); display: flex; flex-direction: column; }
 .doc-head { border-bottom: 1px solid var(--line); padding-bottom: 17px; }
 .doc-head input { border: 0; outline: 0; background: transparent; width: 100%; font-size: 28px; font-weight: 720; color: var(--ink); padding: 0; }
@@ -113,7 +121,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .ai-actions button { border: 1px solid var(--line); background: #fff; padding: 7px 10px; border-radius: 5px; font-size: 11px; }
 .ai-actions button.cancel { color: #8b6c32; }
 .ai-actions .apply { color: #fff; background: var(--accent); border-color: var(--accent); }
-.hidden { display: none; }
+.hidden { display: none !important; }
 .history { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 20px; }
 .history .section-label { margin-bottom: 10px; }
 .revision { display: flex; justify-content: space-between; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f1f3f5; color: #8993a0; font-size: 11px; }
@@ -153,6 +161,9 @@ dialog input:focus, dialog select:focus { outline: 2px solid #c9d7f7; border-col
   .sidebar-foot { display: none; }
   .editor-shell { padding: 14px 10px 16px; }
   .workspace-intro { display: grid; gap: 3px; padding: 0 6px; margin-bottom: 12px; }
+  .empty-state { min-height: 420px; padding: 42px 12px; }
+  .empty-state h1 { font-size: 21px; }
+  .empty-actions { width: 100%; justify-content: center; }
   .editor-canvas { min-height: calc(100vh - 225px); padding: 30px 22px 22px; border-radius: 7px; }
   .doc-head input { font-size: 23px; }
   .editor-canvas textarea { min-height: 360px; font-size: 14px; }

@@ -13,13 +13,14 @@ const publicDir = join(root, "public");
 const execFileAsync = promisify(execFile);
 const assetsDir = join(root, "data", "assets");
 
-function isLegacyTestProject(project) {
+function isLegacyPlaceholderProject(project) {
   if (project?.title === "Conflict test" && ["# One", "# Two"].includes(project.content)) return true;
-  return project?.title === "HTTP export" && project.content === "# Hello\n\n- One\n- Two\n\n![Diagram](diagram.png)";
+  if (project?.title === "HTTP export" && project.content === "# Hello\n\n- One\n- Two\n\n![Diagram](diagram.png)") return true;
+  return project?.title === "欢迎使用 GenOffice" && project.content?.startsWith("# 欢迎使用 GenOffice\n\n这是一个支持 AI 润色、总结和续写的文档编辑器。");
 }
 
 async function readProjects() {
-  try { return JSON.parse(await readFile(dataFile, "utf8")).filter((project) => !isLegacyTestProject(project)); }
+  try { return JSON.parse(await readFile(dataFile, "utf8")).filter((project) => !isLegacyPlaceholderProject(project)); }
   catch { return []; }
 }
 
