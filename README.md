@@ -67,6 +67,12 @@ cd products/genoffice-rebuild
 npm test
 ```
 
+Test environment notes:
+
+- The Node suites (`test:ai`, `test:server`) and the Python suites (`test:docx`, `test:docx-export`) run on Windows as-is — the Python scripts are stdlib-only, and any standard Python 3 install provides the `python3` command that they and `server.js` invoke for DOCX conversion. No `pip install` step is required.
+- Verified on Windows 11 + Python 3.12 / Node 24: `npm test` exits 0 with all four suites passing.
+- The Python suites are invoked via `python3`; if your machine lacks that alias (some distros only ship `python`), add it to PATH or re-run with your interpreter: `python3 test_docx_import.py`.
+
 ## Configure A Real Provider
 
 The default provider is local and requires no credentials. To enable a remote OpenAI-compatible provider, set the API key on the server before starting the product:
