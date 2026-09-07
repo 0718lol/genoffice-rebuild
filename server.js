@@ -40,6 +40,15 @@ async function saveAiSettings(settings) {
   await writeFile(aiSettingsFile, JSON.stringify(settings, null, 2));
 }
 
+// 文档数据锁:所有"读-改-写 projects.json"的写操作必须串行执行。
+// 并发保存时后写会整体覆盖前写,导致内容静默丢失(丢失更新),故排队处理。
+let projectWriteQueue = Promise.resolve();
+function withProjectLock(operation) {
+  const run = projectWriteQueue.then(operation);
+  projectWriteQueue = run.catch(() => {});
+  return run;
+}
+
 function projectRevision(project) {
   return Number.isInteger(project.revision) ? project.revision : (project.revisions || []).length;
 }
@@ -72,11 +81,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/api/projects" && req.method === "POST") {
       const input = await body(req);
-      const projects = await readProjects();
-      const now = new Date().toISOString();
-      const project = { id: crypto.randomUUID(), title: input.title?.trim() || "未命名文档", content: input.content ?? "", updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [] };
-      projects.unshift(project);
-      await saveProjects(projects);
+      const project = await withProjectLock(async () => {
+        const projects = await readProjects();
+        const now = new Date().toISOString();
+        const created = { id: crypto.randomUUID(), title: input.title?.trim() || "未命名文档", content: input.content ?? "", updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [] };
+        projects.unshift(created);
+        await saveProjects(projects);
+        return created;
+      });
       return send(res, 201, project);
     }
     if (url.pathname === "/api/import" && req.method === "POST") {
@@ -98,12 +110,15 @@ const server = http.createServer(async (req, res) => {
           return send(res, 400, { error: `DOCX import failed: ${error.stderr || error.message}` });
         } finally { await rm(temporary, { force: true }); }
       }
-      const projects = await readProjects();
-      const now = new Date().toISOString();
-      const title = input.title?.trim() || "导入的文档";
-      const project = { id: projectId, title, content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [{ id: crypto.randomUUID(), role: "assistant", content: `已导入《${title}》，可以继续告诉我需要如何处理。`, createdAt: now }] };
-      projects.unshift(project);
-      await saveProjects(projects);
+      const project = await withProjectLock(async () => {
+        const projects = await readProjects();
+        const now = new Date().toISOString();
+        const title = input.title?.trim() || "导入的文档";
+        const project = { id: projectId, title, content: input.content || "", importedFrom: input.fileName || null, assets: importedAssets, docxMeta: input.docxMeta || null, updatedAt: now, conversationUpdatedAt: now, revision: 0, revisions: [], messages: [{ id: crypto.randomUUID(), role: "assistant", content: `已导入《${title}》，可以继续告诉我需要如何处理。`, createdAt: now }] };
+        projects.unshift(project);
+        await saveProjects(projects);
+        return project;
+      });
       return send(res, 201, project);
     }
     if (url.pathname === "/api/ai/status" && req.method === "GET") {
@@ -167,52 +182,60 @@ const server = http.createServer(async (req, res) => {
     const match = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/([^/]+))?$/);
     if (match) {
       const [, id, action] = match;
+      const mutatingAction = req.method === "POST" && (action === "messages" || action === "save" || action === "restore");
+      if (mutatingAction) {
+        // 写操作串行化:读-改-写全程持锁
+        const result = await withProjectLock(async () => {
+          const projects = await readProjects();
+          const project = projects.find((item) => item.id === id);
+          if (!project) return { status: 404, body: { error: "Project not found" } };
+          if (action === "messages") {
+            const input = await body(req);
+            const role = input.role === "assistant" ? "assistant" : "user";
+            const content = String(input.content || "").trim().slice(0, 8_000);
+            if (!content) return { status: 400, body: { error: "Message content is required" } };
+            const message = { id: crypto.randomUUID(), role, content, createdAt: new Date().toISOString() };
+            project.messages = Array.isArray(project.messages) ? project.messages : [];
+            project.messages.push(message);
+            project.messages = project.messages.slice(-100);
+            project.conversationUpdatedAt = message.createdAt;
+            await saveProjects(projects);
+            return { status: 201, body: { message, conversationUpdatedAt: project.conversationUpdatedAt } };
+          }
+          if (action === "save") {
+            const input = await body(req);
+            const currentRevision = projectRevision(project);
+            if (input.baseRevision !== undefined && Number(input.baseRevision) !== currentRevision) {
+              return { status: 409, body: { error: "Document changed since this operation was prepared", project } };
+            }
+            const nextTitle = input.title?.trim() || project.title;
+            const nextContent = input.content ?? project.content;
+            if (nextTitle === project.title && nextContent === project.content) return { status: 200, body: project };
+            project.revisions.unshift({ content: project.content, savedAt: project.updatedAt });
+            project.revisions = project.revisions.slice(0, 20);
+            project.title = nextTitle;
+            project.content = nextContent;
+            project.revision = currentRevision + 1;
+            project.updatedAt = new Date().toISOString();
+            await saveProjects(projects);
+            return { status: 200, body: project };
+          }
+          const input = await body(req);
+          const revision = project.revisions[Number(input.index)];
+          if (!revision) return { status: 400, body: { error: "Revision not found" } };
+          project.revisions.unshift({ content: project.content, savedAt: project.updatedAt });
+          project.content = revision.content;
+          project.revision = projectRevision(project) + 1;
+          project.updatedAt = new Date().toISOString();
+          await saveProjects(projects);
+          return { status: 200, body: project };
+        });
+        return send(res, result.status, result.body);
+      }
       const projects = await readProjects();
       const project = projects.find((item) => item.id === id);
       if (!project) return send(res, 404, { error: "Project not found" });
       if (req.method === "GET" && !action) return send(res, 200, project);
-      if (req.method === "POST" && action === "messages") {
-        const input = await body(req);
-        const role = input.role === "assistant" ? "assistant" : "user";
-        const content = String(input.content || "").trim().slice(0, 8_000);
-        if (!content) return send(res, 400, { error: "Message content is required" });
-        const message = { id: crypto.randomUUID(), role, content, createdAt: new Date().toISOString() };
-        project.messages = Array.isArray(project.messages) ? project.messages : [];
-        project.messages.push(message);
-        project.messages = project.messages.slice(-100);
-        project.conversationUpdatedAt = message.createdAt;
-        await saveProjects(projects);
-        return send(res, 201, { message, conversationUpdatedAt: project.conversationUpdatedAt });
-      }
-      if (req.method === "POST" && action === "save") {
-        const input = await body(req);
-        const currentRevision = projectRevision(project);
-        if (input.baseRevision !== undefined && Number(input.baseRevision) !== currentRevision) {
-          return send(res, 409, { error: "Document changed since this operation was prepared", project });
-        }
-        const nextTitle = input.title?.trim() || project.title;
-        const nextContent = input.content ?? project.content;
-        if (nextTitle === project.title && nextContent === project.content) return send(res, 200, project);
-        project.revisions.unshift({ content: project.content, savedAt: project.updatedAt });
-        project.revisions = project.revisions.slice(0, 20);
-        project.title = nextTitle;
-        project.content = nextContent;
-        project.revision = currentRevision + 1;
-        project.updatedAt = new Date().toISOString();
-        await saveProjects(projects);
-        return send(res, 200, project);
-      }
-      if (req.method === "POST" && action === "restore") {
-        const input = await body(req);
-        const revision = project.revisions[Number(input.index)];
-        if (!revision) return send(res, 400, { error: "Revision not found" });
-        project.revisions.unshift({ content: project.content, savedAt: project.updatedAt });
-        project.content = revision.content;
-        project.revision = projectRevision(project) + 1;
-        project.updatedAt = new Date().toISOString();
-        await saveProjects(projects);
-        return send(res, 200, project);
-      }
     }
     const exportMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/export\/docx$/);
     if (exportMatch && req.method === "POST") {
